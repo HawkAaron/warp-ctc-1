@@ -35,7 +35,7 @@ public:
     CpuCTC(const CpuCTC&) = delete;
     CpuCTC& operator=(const CpuCTC&) = delete;
 
-    ctcStatus_t cost_and_grad(const ProbT* const activations,
+    ctcStatus_t cost_and_grad(const ProbT* const probs,
                               ProbT *grads,
                               ProbT* costs,
                               const int* const flat_labels,
@@ -43,7 +43,7 @@ public:
                               const int* const input_lengths);
 
 
-    ctcStatus_t score_forward(const ProbT* const activations,
+    ctcStatus_t score_forward(const ProbT* const probs,
                               ProbT* costs,
                               const int* const flat_labels,
                               const int* const label_lengths,
@@ -75,9 +75,6 @@ private:
     int num_threads_;
     int blank_label_;
     void* workspace_;
-
-    void softmax(const ProbT* const activations, ProbT* probs,
-                 const int* const input_lengths);
 
     std::tuple<ProbT, bool>
             cost_and_grad_kernel(ProbT *grad, const ProbT* const probs,
@@ -157,31 +154,6 @@ int CpuCTC<ProbT>::CpuCTC_metadata::setup_labels(const int* const labels,
     labels_w_blanks[S - 1] = blank_label;
 
     return repeats;
-}
-
-template<typename ProbT>
-void
-CpuCTC<ProbT>::softmax(const ProbT* const activations, ProbT* probs,
-                       const int* const input_lengths) {
-#pragma omp parallel for
-    for (int mb = 0; mb < minibatch_; ++mb) {
-        for(int c = 0; c < input_lengths[mb]; ++c) {
-            int col_offset = (mb + minibatch_ * c) * alphabet_size_;
-            ProbT max_activation = -std::numeric_limits<ProbT>::infinity();
-            for(int r = 0; r < alphabet_size_; ++r)
-                max_activation = std::max(max_activation, activations[r + col_offset]);
-
-            ProbT denom = ProbT(0.);
-            for(int r = 0; r < alphabet_size_; ++r) {
-                probs[r + col_offset] = std::exp(activations[r + col_offset] - max_activation);
-                denom += probs[r + col_offset];
-            }
-
-            for(int r = 0; r < alphabet_size_; ++r) {
-                probs[r + col_offset] /= denom;
-            }
-        }
-    }
 }
 
 template<typename ProbT>
@@ -374,13 +346,13 @@ ProbT CpuCTC<ProbT>::compute_betas_and_grad(ProbT* grad, const ProbT* const prob
 
 template<typename ProbT>
 ctcStatus_t
-CpuCTC<ProbT>::cost_and_grad(const ProbT* const activations,
+CpuCTC<ProbT>::cost_and_grad(const ProbT* const probs,
                              ProbT *grads,
                              ProbT *costs,
                              const int* const flat_labels,
                              const int* const label_lengths,
                              const int* const input_lengths) {
-    if (activations == nullptr ||
+    if (probs == nullptr ||
         grads == nullptr ||
         costs == nullptr ||
         flat_labels == nullptr ||
@@ -389,11 +361,11 @@ CpuCTC<ProbT>::cost_and_grad(const ProbT* const activations,
         )
         return CTC_STATUS_INVALID_VALUE;
 
-    ProbT* probs = static_cast<ProbT *>(workspace_);
+    //ProbT* probs = static_cast<ProbT *>(workspace_);
 
     int maxT = *std::max_element(input_lengths, input_lengths + minibatch_);
 
-    size_t bytes_used = sizeof(ProbT) * minibatch_ * alphabet_size_ * maxT;
+    size_t bytes_used = 0; //sizeof(ProbT) * minibatch_ * alphabet_size_ * maxT;
 
     //per minibatch memory
     size_t per_minibatch_bytes = 0;
@@ -412,8 +384,6 @@ CpuCTC<ProbT>::cost_and_grad(const ProbT* const activations,
 
     //labels w/blanks, e_inc, s_inc
     per_minibatch_bytes += 3 * sizeof(int) * maxS;
-
-    softmax(activations, probs, input_lengths);
 
 #pragma omp parallel for
     for (int mb = 0; mb < minibatch_; ++mb) {
@@ -434,12 +404,12 @@ CpuCTC<ProbT>::cost_and_grad(const ProbT* const activations,
 }
 
 template<typename ProbT>
-ctcStatus_t CpuCTC<ProbT>::score_forward(const ProbT* const activations,
+ctcStatus_t CpuCTC<ProbT>::score_forward(const ProbT* const probs,
                                          ProbT* costs,
                                          const int* const flat_labels,
                                          const int* const label_lengths,
                                          const int* const input_lengths) {
-    if (activations == nullptr ||
+    if (probs == nullptr ||
         costs == nullptr ||
         flat_labels == nullptr ||
         label_lengths == nullptr ||
@@ -447,11 +417,11 @@ ctcStatus_t CpuCTC<ProbT>::score_forward(const ProbT* const activations,
         )
         return CTC_STATUS_INVALID_VALUE;
 
-    ProbT* probs = static_cast<ProbT *>(workspace_);
+    //ProbT* probs = static_cast<ProbT *>(workspace_);
 
     int maxT = *std::max_element(input_lengths, input_lengths + minibatch_);
 
-    size_t bytes_used = sizeof(ProbT) * minibatch_ * alphabet_size_ * maxT;
+    size_t bytes_used = 0; //sizeof(ProbT) * minibatch_ * alphabet_size_ * maxT;
 
     //per minibatch memory
     size_t per_minibatch_bytes = 0;
@@ -470,8 +440,6 @@ ctcStatus_t CpuCTC<ProbT>::score_forward(const ProbT* const activations,
 
     //labels w/blanks, e_inc, s_inc
     per_minibatch_bytes += 3 * sizeof(int) * maxS;
-
-    softmax(activations, probs, input_lengths);
 
 #pragma omp parallel for
     for (int mb = 0; mb < minibatch_; ++mb) {

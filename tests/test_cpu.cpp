@@ -18,8 +18,8 @@ bool small_test() {
 
     // Calculate the score analytically
     float expected_score;
+    std::vector<float> probs(activations.size());
     {
-        std::vector<float> probs(activations.size());
         softmax(activations.data(), alphabet_size, T, probs.data());
 
         // Score calculation is specific to the given activations above
@@ -46,7 +46,7 @@ bool small_test() {
 
     void* ctc_cpu_workspace = malloc(cpu_alloc_bytes);
 
-    throw_on_error(compute_ctc_loss(activations.data(), NULL,
+    throw_on_error(compute_ctc_loss(probs.data(), NULL,
                                     labels.data(), label_lengths.data(),
                                     lengths.data(),
                                     alphabet_size,
@@ -118,11 +118,11 @@ bool options_test() {
                       * a[offset(3, 0, 1)] * a[offset(4, 0, 0)]);
     expected_scores[1] = 5.42262; // from tensorflow
 
-    // now take the log to account for the softmax
+/*    // now take the log to account for the softmax
     for (auto& a : activations) {
         a = std::log(a);
     }
-
+*/
     std::vector<int> labels = {0, 1, 2, 1, 0,
                                0, 1, 1, 0};
 
@@ -204,6 +204,9 @@ bool inf_test() {
 
     for (int i = 0; i < T; ++i)
         acts[alphabet_size * i + 2] = -1e30;
+    
+    std::vector<float> probs(acts.size());
+    softmax(acts.data(), alphabet_size, T, probs.data());
 
     std::vector<int> sizes;
     sizes.push_back(T);
@@ -224,7 +227,7 @@ bool inf_test() {
 
     void* ctc_cpu_workspace = malloc(cpu_alloc_bytes);
 
-    throw_on_error(compute_ctc_loss(acts.data(), grads.data(),
+    throw_on_error(compute_ctc_loss(probs.data(), grads.data(),
                                     labels.data(), label_lengths.data(),
                                     sizes.data(),
                                     alphabet_size,
@@ -269,6 +272,9 @@ float grad_check(int T, int alphabet_size,
     options.loc = CTC_CPU;
     options.num_threads = 1;
 
+    std::vector<float> probs(acts.size());
+    softmax(acts.data(), alphabet_size, T*minibatch, probs.data());
+
     size_t cpu_alloc_bytes;
     throw_on_error(get_workspace_size(label_lengths.data(), sizes.data(),
                                       alphabet_size, sizes.size(), options,
@@ -277,7 +283,7 @@ float grad_check(int T, int alphabet_size,
 
     void* ctc_cpu_workspace = malloc(cpu_alloc_bytes);
 
-    throw_on_error(compute_ctc_loss(acts.data(), grads.data(),
+    throw_on_error(compute_ctc_loss(probs.data(), grads.data(),
                                     flat_labels.data(), label_lengths.data(),
                                     sizes.data(),
                                     alphabet_size,
@@ -298,7 +304,8 @@ float grad_check(int T, int alphabet_size,
         std::vector<float> costsP2(minibatch);
 
         acts[i] += epsilon;
-        throw_on_error(compute_ctc_loss(acts.data(), NULL,
+        softmax(acts.data(), alphabet_size, T*minibatch, probs.data());
+        throw_on_error(compute_ctc_loss(probs.data(), NULL,
                                         flat_labels.data(), label_lengths.data(),
                                         sizes.data(),
                                         alphabet_size,
@@ -309,7 +316,8 @@ float grad_check(int T, int alphabet_size,
                        "Error: compute_ctc_loss (1) in grad_check");
 
         acts[i] -= 2 * epsilon;
-        throw_on_error(compute_ctc_loss(acts.data(), NULL,
+        softmax(acts.data(), alphabet_size, T*minibatch, probs.data());
+        throw_on_error(compute_ctc_loss(probs.data(), NULL,
                                         flat_labels.data(), label_lengths.data(),
                                         sizes.data(),
                                         alphabet_size,
